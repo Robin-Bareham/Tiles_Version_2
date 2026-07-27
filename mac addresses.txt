@@ -1,0 +1,8 @@
+Tile Game V2.0:
+
+
+MAC Address: 24:58:7C:65:76:F8  // yellobyte V2 inside controller box
+
+MAC Address: ec:da:3b:96:ea:b0  // game ESP inside controller box
+
+MAC Address: ec:da:3b:95:c5:c8  // single tile ESP
