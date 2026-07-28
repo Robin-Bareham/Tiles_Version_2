@@ -115,7 +115,7 @@ int tileSegment;  // this allows us to choose one of the 8 predefined tile segme
 #include <esp_now.h>  //now the ESP-NOW stuff................................................................ESP NOW
 #include <WiFi.h>
 uint8_t receiverAddress[] = {  0x24, 0x58, 0x7C, 0x65, 0x76, 0xF8 };  //we send to yellobyte esp for sounds
-uint8_t receiverAddress2[] = { 0xEC, 0xDA, 0x3B, 0x96, 0xEA, 0xB0 }; //Game ESP reciever (ec:da:3b:96:ea:b0)
+//uint8_t receiverAddress2[] = { 0xEC, 0xDA, 0x3B, 0x96, 0xEA, 0xB0 }; //Game ESP reciever (ec:da:3b:96:ea:b0)
 
 //variables incoming and outgoing data
 bool dataReceived = false;
@@ -2065,3 +2065,41 @@ void endSet() {                //we dont send
   pixels.fill(white, 10, 40);  // TiLE On outside
   pixels.show();               // Send the updated pixel colors to the hardware
 }
+
+
+// ====================================    ESP SENDING MESSAGES AND ADDING PEERS
+
+bool sendMessage(const uint8_t *macAddress, struct_message_all &message)
+{
+  
+  esp_err_t result = esp_now_send(macAddress, (uint8_t *)&message, sizeof(message));
+  if(result == ESP_OK)
+  {
+    Serial.println("Message Sent Successfully");
+    return true;
+  }
+  else
+  {
+    Serial.print("Error sending message: ");
+    Serial.println(result);
+    return false;
+  }
+}
+
+bool addPeer(const uint8_t *macAddress)
+{
+  esp_now_peer_info_t peerInfo;
+    memset(&peerInfo, 0, sizeof(peerInfo));
+    peerInfo.channel = 0;
+    peerInfo.encrypt = false;
+    memcpy(peerInfo.peer_addr, macAddress, 6);
+
+    if(esp_now_add_peer(&peerInfo) != ESP_OK)
+    {
+        Serial.println("Failed to add peer");
+        return false;
+    }
+    Serial.println("Peer added successfully");
+    return true;
+}
+

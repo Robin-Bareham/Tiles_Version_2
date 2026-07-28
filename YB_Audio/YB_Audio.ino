@@ -69,6 +69,10 @@ String serialBuffer = "";
 AudioFile musicFiles[15];
 int totalMusicFiles = 0;
 
+//Serial Monitor Debugging
+String menu = "main"; //"main", "bg", "sfx"
+
+
 #include <esp_now.h>  //===============================================ESP
 #include <WiFi.h>
 
@@ -376,12 +380,12 @@ void activateData() {  //actively load incoming results and sensor values, sets 
     if(myResults.gB == 3)
     {
       playBg(8,0,0); //play long celebration music
-      changeBgVol(30);
+      changeBgVol(55);
     }
     else
     {
       playSfx(myResults.gB + 1);
-      changeSfxVol(70);
+      changeSfxVol(100);
     }
     
   }
@@ -458,65 +462,117 @@ void processSerialCommand(String command) {
   }
 
   int fileIndex = -1;  //variable to hold the data entered via serial monitor. cant use 0 as this is assigned
-  //Typing in a number will get the sound effect, typing in the name gives the background music
-  if (isNumber) 
-  {
-    // It's a number, see if that sound effect exists
-    fileIndex = command.toInt();  // set the fileIndex to the int number identified?
-    if(fileIndex > sfxAmount) //
-      {
-        Serial.println("No SFX fit that number");
-        return; 
-      }
-    currentSfx = -1;
-    //Checks if there's a channel free in the mixer for the sound effect to play.
-    for(int i = 0; i < totalSfxVoices; i++)
-    {
-      SfxVoice &v = sfx_voices[i];
-      if(!v.active)
-      {
-        currentSfx = i;
-        break;
-      }
-    }
-    if(currentSfx == -1)
-    {
-      Serial.println("No space for new sfx");
-      return;
-    }
-    playSfx(command.toInt());
-  } 
-  else 
-  {
-    // It's a name, search for it
-    for (int i = 0; i < totalAudioFiles; i++) {
-      if (audioFiles[i].name.equalsIgnoreCase(command)) {
-        fileIndex = i;
-        break;
-      }
-    }
 
-    if (fileIndex < 0) {
-      Serial.printf("File '%s' not found. Type 'list' to see all files.\n", command.c_str());
+  // ----- This is a menu system for the Serial Monitor -----
+  // "home" is where you can call sound effects (Number) or the background track (Name).
+  // "bg" is where you adjust the baackground's volume, type "back" to return to home.
+  // "sfx" is where you adjust the sound effect's volume, type "back" to return to home.
+  // This can all be removed / simplified once the final ESP is ready as this has been for testing purposes
+  if(menu == "main")
+  {
+    if(command.equalsIgnoreCase("bg"))
+    {
+      menu = "bg";
+      Serial.println("In BG Vol");
       return;
     }
-    //Finds the background music
-      for (int i = 0; i < totalMusicFiles; i++)
-      {
-        if(musicFiles[i].name.equalsIgnoreCase(command))
+    if(command.equalsIgnoreCase("sfx"))
+    {
+      menu = "sfx";
+      Serial.println("In SFX Vol");
+      return;
+    }
+     //Typing in a number will get the sound effect, typing in the name gives the background music
+    if (isNumber) 
+    {
+      // It's a number, see if that sound effect exists
+      fileIndex = command.toInt();  // set the fileIndex to the int number identified?
+      if(fileIndex > sfxAmount) //
         {
+          Serial.println("No SFX fit that number");
+          return; 
+        }
+      currentSfx = -1;
+      //Checks if there's a channel free in the mixer for the sound effect to play.
+      for(int i = 0; i < totalSfxVoices; i++)
+      {
+        SfxVoice &v = sfx_voices[i];
+        if(!v.active)
+        {
+          currentSfx = i;
+          break;
+        }
+      }
+      if(currentSfx == -1)
+      {
+        Serial.println("No space for new sfx");
+        return;
+      }
+      playSfx(command.toInt());
+    } 
+    else 
+    {
+      // It's a name, search for it
+      for (int i = 0; i < totalAudioFiles; i++) {
+        if (audioFiles[i].name.equalsIgnoreCase(command)) {
           fileIndex = i;
           break;
         }
       }
-      if(fileIndex < 0)
-      {
-        Serial.printf("File '%s' not found. Type 'list' to see all files. \n", command.c_str());
+
+      if (fileIndex < 0) {
+        Serial.printf("File '%s' not found. Type 'list' to see all files.\n", command.c_str());
         return;
       }
-      playBg(fileIndex,0,0);
+      //Finds the background music
+        for (int i = 0; i < totalMusicFiles; i++)
+        {
+          if(musicFiles[i].name.equalsIgnoreCase(command))
+          {
+            fileIndex = i;
+            break;
+          }
+        }
+        if(fileIndex < 0)
+        {
+          Serial.printf("File '%s' not found. Type 'list' to see all files. \n", command.c_str());
+          return;
+        }
+        playBg(fileIndex,0,0);
+    }
   }
+  else if (menu == "bg")
+  {
+    if(command.equalsIgnoreCase("back"))
+    {
+      menu = "main";
+      Serial.println("In Main Menu");
+      return;
+    }
+    if(isNumber)
+    {
+      changeBgVol(command.toInt());
+    }
+  }
+  else if (menu == "sfx")
+  {
+    if(command.equalsIgnoreCase("back"))
+    {
+      menu = "main";
+      Serial.println("In Main Menu");
+      return;
+    }
+    if(isNumber)
+    {
+      changeSfxVol(command.toInt());
+    }
+  }
+  // ----- End of menu system for the Serial Monitor -----
+
+ 
 }//end of process Input
+
+
 
 void playBg(int bg_playing, int looping, int cutting)
 {

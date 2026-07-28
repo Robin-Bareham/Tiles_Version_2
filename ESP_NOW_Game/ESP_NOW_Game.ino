@@ -171,17 +171,15 @@ void loadData()
     case 2:
       audioMessage.id = 6;
       audioMessage.dA = gameSuccess + 1 ; // plays success, partial or fail sound effect
-      audioMessage.eB = 70; // Sound effect volume
+      audioMessage.eB = 100; // Sound effect volume
       sendMessage(ybAddress,audioMessage);
     break;
     case 3:
       
       audioMessage.id = 6;
-      audioMessage.dA = 5 ; // plays success, partial or fail sound effect
-      audioMessage.eB = 70; // Sound effect volume
       //When music is active use bit bellow instead.
-      //audioMessage.dB = // number of celebration music.
-      //audioMessage.eA = 30; // background volume
+      audioMessage.dB = 8; // number of celebration music.
+      audioMessage.eA = 55; // background volume
       sendMessage(ybAddress,audioMessage);
     break;
 
@@ -213,22 +211,55 @@ void processSerialCommand(String command)
     int numInput = command.toInt();
     if(numInput >= 90 && numInput <= 98)
     {
+      // Tell Tile to Start Exercise
       Serial.println("Sending to Tile");
       struct_message_all gameMessage;
       gameMessage.id = 6; //Game ESP id, i don't know if this is correct
       gameMessage.b = numInput; //The game it's calling upon.
       sendMessage(tileAddress, gameMessage);
       Serial.println("Sending to tile END");
+      // Tell YB to start sfx and bg music
+      struct_message_all audioMessage;
       if(numInput != 90 && numInput != 98 ) //If it's not the reset / celibration
       {
-        struct_message_all audioMessage;
         audioMessage.id = 6;
         audioMessage.dA = 7; // Excerise start sound effect
-        audioMessage.eB = 70; // Sound effect volume
-        sendMessage(ybAddress,audioMessage);
+        audioMessage.eB = 100; // Sound effect volume
+        audioMessage.eA = 60; // Background volume
+        
       }
+      switch (numInput)
+      {
+        //reset
+        case 90:
+        case 94:
+          audioMessage.dB = 2; //Silence
+          audioMessage.eA = 0;
+        break;
+        //Marching
+        case 91:
+          audioMessage.dB = 6; //Background Music
+        break;
+        //Balance and Leg Lift
+        case 92:
+        case 93:
+        case 97:
+          audioMessage.dB = 7;
+        break;
+        //Lunge and Squats
+        case 95:
+        case 96:
+          audioMessage.dB = 5;
+        break;
+        //Celibration
+        case 98:
+          audioMessage.dB = 8;
+          audioMessage.gB = 1; //Doesn't loop
+        break;
+      }
+      sendMessage(ybAddress,audioMessage);
     }
-    //For testing
+    //For testing, gets the yb to play a sound effect
     else if (numInput >= 0 && numInput <= 10)
     {
       Serial.println("Start of sending.");
@@ -247,6 +278,7 @@ void processSerialCommand(String command)
 
 bool sendMessage(const uint8_t *macAddress, struct_message_all &message)
 {
+  
   esp_err_t result = esp_now_send(macAddress, (uint8_t *)&message, sizeof(message));
   if(result == ESP_OK)
   {
