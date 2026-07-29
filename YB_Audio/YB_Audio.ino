@@ -34,39 +34,39 @@
 // ---- Audio Objects
 I2SStream i2s;
 InputMixer<int16_t> mixer; //Allows for two sounds at once.
-StreamCopy copier(i2s,mixer,AUDIO_BUFFER_SIZE);
+StreamCopy copier(i2s,mixer,AUDIO_BUFFER_SIZE); //Where the dual audio gets coppied into.
 AudioInfo info(44100,2,16); //Rate of the WAV Files
 
 // ---- Background Music ----
-File bgFile;
+File bgFile; //SD Path
 WAVDecoder bgDecoder;
 EncodedAudioStream bgStream(&bgFile,&bgDecoder);
-VolumeStream bgVolume(bgStream);
+VolumeStream bgVolume(bgStream); //Controls Audio's volume
 
-int bgIndex = -1;
-float bgVol = 0.30;
-String currentPath;
+int bgIndex = -1; //Index location of background track in mixer
+float bgVol = 0.50; //Base volume of background, Game ESP overwrites this
+String currentPath; //Path of the audio currently playing for looping purposes
 
 // ---- Sound effects ----
 SfxVoice sfx_voices[2]; //Amount of Sound effcts that could play at once.
 int totalSfxVoices = 2;
 int currentSfx = 0; //Acts as a pointer
 bool isSfxPlaying = false;
-float sfxVolValue = 0.70;
+float sfxVolValue = 1.0; //Base volume of sound effects, Game ESP overwrites this.
 
 //Sound Effect start and end times (Milliseconds).
 static uint32_t sfxStartTime = 0;
-uint32_t sfxDurationMs = 2000; 
-//Automatically set to 2 seconds, in the audio_data.h in the list, 
-// the last number is the duration of the song in millisection 
+uint32_t sfxDurationMs = 1450; 
+//Automatically set to 1.45 seconds as that's the longest sfx currently.
+// in audio_data.h in the 'sfxList', the last number is the duration of the song in milliseconds 
 //(do it slightly shorter than the actual duration of the song to avoid a clack noise)
 
 
-AudioFile audioFiles[100];
+AudioFile audioFiles[100]; //List of all WAV files from SD card
 int totalAudioFiles = 0;
 bool isPlaying = false;
 String serialBuffer = "";
-AudioFile musicFiles[15];
+AudioFile musicFiles[15]; //List of all WAV Background Music files from SD card
 int totalMusicFiles = 0;
 
 //Serial Monitor Debugging
@@ -80,17 +80,16 @@ String menu = "main"; //"main", "bg", "sfx"
 uint8_t receiverAddress1[] = { 0xEC, 0xDA, 0x3B, 0x95, 0xC5, 0xC8 }; //Tile 1 Reciever (ec:da:3b:95:c5:c8)
 uint8_t receiverAddress2[] = { 0xEC, 0xDA, 0x3B, 0x96, 0xEA, 0xB0 }; //Game ESP reciever (ec:da:3b:96:ea:b0)
 
-struct_message_all myGame;     // Create an outgoing struct_message from yellobyte ESP called myGame
-struct_message_all myResults;  // Create an incoming struct_message called myResults
+struct_message_all myResults;  // Message that hold all the data received.
 
 //variables incoming and outgoing
 bool dataReceived = false;
-//Audio Inputs
-int recvSfx = 0;
-int recvBg = 0;
-int recvBgVol = 30;
-int recvSfxVol = 70;
-int recvBgLooping = 0;
+//Audio Inputs 0 means nothing happnens.
+int recvSfx = 0; //What sound effect will be played
+int recvBg = 0; //What background effect will be played
+int recvBgVol = bgVol; //What volume the background music will be at
+int recvSfxVol = sfxVolValue; //What volume the sound effects will be at
+int recvBgLooping = 0; //If the background won't loop, 1=it plays once.
 
 
 // // --- CALLBACK: DATA SENT --- (Shouldn't need this)
@@ -107,8 +106,8 @@ void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, in
   //Need to allocate which ones which.
   recvSfx = myResults.dA;
   recvBg = myResults.dB;
-  recvBgVol = myResults.eA;
-  recvSfxVol = myResults.eB;
+  recvSfxVol = myResults.eA;
+  recvBgVol = myResults.eB;
   recvBgLooping = myResults.gB;
   Serial.println("Package Recieved.");
   dataReceived = true;
@@ -120,11 +119,14 @@ void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, in
 
 void initVoices(SfxVoice &v)
 {
+  //Pointers are used as they make changing the sound effect playing easier
+  //As the sound effect part of the mixer isn't always full (has something playing)
+  //Without pointers it either doesn't work or sounds buggy.
   v.decoder = new WAVDecoder();
   v.memory = new MemoryStream(nullptr,0,false);
   v.stream = new EncodedAudioStream(v.memory,v.decoder);
-  //v.resample = new ResampleStream(*v.stream);
 
+  //Placed last as it then allows the sfx to have their volume changed
   v.volume = new VolumeStream(*v.stream);
   v.volume->setAudioInfo(info);
   v.volume->begin();
@@ -135,7 +137,7 @@ void initVoices(SfxVoice &v)
   v.mixerIndex = mixer.add(*v.volume, 0);
   v.active = false;
   v.startTime = 0;
-  v.endTime = 1300;
+  v.endTime = 1450;
 }
 
 // --- Initiate Audio 
@@ -183,7 +185,7 @@ void scanAudioFiles() {
   while (file) {
     String fileName = String(file.name());
     //Checks if the audio will be used for background music
-    //If it does, when adding to the SD Card it has to start with lowercase m
+    //If adding new music to the SD card make sure it starts with lowercase m, or it won't be included.
     bool currentMus = false;
     if(fileName.charAt(0) == 'm')
     {
@@ -243,7 +245,7 @@ void setup() {
   //esp_now_register_send_cb((esp_now_send_cb_t)OnDataSent);
   esp_now_register_recv_cb((esp_now_recv_cb_t)OnDataRecv);
 
-  // Register Peer
+  // Register Peers that YB receives information from.
   esp_now_peer_info_t peerInfo = {};
   memcpy(peerInfo.peer_addr, receiverAddress1, 6);
   memcpy(peerInfo.peer_addr, receiverAddress2, 6);
@@ -268,11 +270,8 @@ void setup() {
   }
   Serial.println("SD Card initialized");
 
-  // Initialize audio
-  
-  audioSetup(); //Set up does the setPinout
-  //audio.setVolume(18);  // Volume now adjusted with .volume in sfx struct (0 to 100)
-
+  // Initialize audio and sound effects
+  audioSetup();
   // Scan SD card for audio files
   scanAudioFiles();
 
@@ -281,7 +280,7 @@ void setup() {
     return;
   }
 
-  // Display all files
+  // Display all background music and sound effects.
   listAllFiles();
 
   // Blink LED to indicate ready - why are we checking 0,1,2?
@@ -293,10 +292,8 @@ void setup() {
   }
 
   //Setup Background Music
-  //background music comes from the SD Card because they're larger files,
-  // ---- Have to be WAV ---- or it wont work with the mixer.
-  bgFile = SD.open("/m_intro.wav");
-  currentPath = "/m_main_a.wav";
+  bgFile = SD.open("/m_silence.wav"); //The first track that'll be heard
+  currentPath = "/m_silence.wav"; //The track it'll loop as upon loading.
   if(!bgFile)
   {
     Serial.println("Background music missing.");
@@ -318,7 +315,7 @@ void loop() {
   //Keeps audio running
   copier.copy();
 
-  //check for messages from game esp (not keyboard) - for game success sounds
+  //check for messages from game esp / tile esp
   if (dataReceived == true) {
     activateData();  // load gameSuccess data from game esp, sets dataReceived to false again
   }
@@ -374,48 +371,37 @@ void activateData() {  //actively load incoming results and sensor values, sets 
     Serial.printf("Sfx Vol Data received: ");
     Serial.println(recvSfxVol);
   */
-
-  if(myResults.gB >= 0 && myResults.gB <= 3)
-  {
-    if(myResults.gB == 3)
-    {
-      playBg(8,0,0); //play long celebration music
-      changeBgVol(55);
-    }
-    else
-    {
-      playSfx(myResults.gB + 1);
-      changeSfxVol(100);
-    }
-    
-  }
-
-
   //0 Means Nothing, Don't use that, it's a null state meaning empty
   // ---- Background Volume Changing
   if(recvBgVol >= 1 && recvBgVol <= 101)
   {
-    Serial.println("Background Volume Change.");
+    Serial.print("Background Volume Change:  ");
+    Serial.println(recvBgVol);
     changeBgVol(recvBgVol-1);
   }
   // ---- Sound Effect Volume Change
   if(recvSfxVol >= 1 && recvSfxVol <= 101)
   {
-    Serial.println("Sound Effect Volume Change.");
+    Serial.print("Sound Effect Volume Change.");
+    Serial.println(recvSfxVol);
     changeSfxVol(recvSfxVol-1);
   }
   // ----- Play sound effects
   if(recvSfx >= 1 && recvSfx < 16)
   {
-    Serial.println("Sound Effect Playing.");
+    Serial.print("Sound Effect Playing.");
+    Serial.println(recvSfx);
     playSfx(recvSfx);
   }
   // ---- Play Background Music
   if(recvBg >= 1 && recvBg < totalMusicFiles)
   {
-    Serial.println("Background Change.");
+    Serial.print("Background Change.");
+    Serial.println(recvBg);
+    //recvBgLooping is if the new background music shall loop (0) or not (1)
     playBg(recvBg,0,recvBgLooping);
   }
+  Serial.println("");
   dataReceived = false;
 }  
 
@@ -424,7 +410,7 @@ void listAllFiles()
   Serial.println("\n===== MUSIC FILES ON SD CARD =====");
   Serial.printf("Total files: %d\n\n", totalMusicFiles);
   //Lists Music Files on SD Card
-  for (int i = 0; i < totalMusicFiles; i++) {
+  for (int i = 0; i < totalMusicFiles; i++) { //Change totalMusicFiles to totalAudioFiles to display all files on the SD card
     Serial.printf("[%d] %s", i, musicFiles[i].name.c_str()); //Change musicFiles to audioFiles to display all files on the SD card
     Serial.print(" (WAV)");
     Serial.println();
@@ -438,7 +424,7 @@ void listAllFiles()
     Serial.println();
   }
   Serial.println("\n===================================");
-  Serial.println("Type a number to play from RAM and a name to play from SD:");
+  Serial.println("Type a number to play a SFX and a name to play Music:");
   Serial.println("Type 'list' to show all files again\n");
 }
 
@@ -464,9 +450,9 @@ void processSerialCommand(String command) {
   int fileIndex = -1;  //variable to hold the data entered via serial monitor. cant use 0 as this is assigned
 
   // ----- This is a menu system for the Serial Monitor -----
-  // "home" is where you can call sound effects (Number) or the background track (Name).
-  // "bg" is where you adjust the baackground's volume, type "back" to return to home.
-  // "sfx" is where you adjust the sound effect's volume, type "back" to return to home.
+  // "main" is where you can call sound effects (Number) or the background track (Name).
+  // "bg" is where you adjust the background's volume, type "back" to return to main.
+  // "sfx" is where you adjust the sound effect's volume, type "back" to return to main.
   // This can all be removed / simplified once the final ESP is ready as this has been for testing purposes
   if(menu == "main")
   {
@@ -585,7 +571,10 @@ void playBg(int bg_playing, int looping, int cutting)
   // Changing Music
   else
   {
+    //if the music's position doesn't exist
     if(bg_playing < 0 || bg_playing >= totalAudioFiles) {return;}
+    
+    //changing volumes
     bgVolume.setVolume(bgVol);
     //Adjusting volume if a quieter track is playing
     if(bg_playing == 3) //Whatever Value Simon Says Music is in the Music list
@@ -595,6 +584,7 @@ void playBg(int bg_playing, int looping, int cutting)
     //If the file being played exists and has as WAV file
     if(musicFiles[bg_playing].hasWav)
     {
+      //Changes the path to new music's location
       pathToPlay = musicFiles[bg_playing].wavPath;
       currentPath = pathToPlay;
     }
@@ -610,14 +600,19 @@ void playBg(int bg_playing, int looping, int cutting)
     }
     if(cutting == 1)
     {
-      currentPath = "/m_silence.wav";
+      currentPath = "/m_silence.wav"; 
+      //Have to use a wav audio of silence for silence as the mixer
+      //would break if both the sound effect and background 
+      //locations in the mixer were both empty
     }
   }
   //Changing the track in the mixer.
   mixer.setWeight(bgIndex,0); //Have to mute to avoid clicks or distortion whilst changing
+  //Opens file
   File newFile = SD.open(pathToPlay.c_str());
   if(!newFile){Serial.println("Missing Bg Music");}
 
+  //Close file to change music file to avoid any issues
   bgFile.close();
   bgFile = newFile;
   //Have to begin and end stream / decoder to avoid distortion
@@ -625,9 +620,8 @@ void playBg(int bg_playing, int looping, int cutting)
   bgStream.end();
   bgStream = EncodedAudioStream(&bgFile, &bgDecoder);
   bgStream.begin();
-
+  //Turn the mixer on again
   mixer.setWeight(bgIndex,100);
-  //Serial.println("Background Music Starting");
 }
 
 void playSfx(int sfx_playing)
@@ -635,25 +629,25 @@ void playSfx(int sfx_playing)
   //Resets Variables for reasignment
   SfxVoice &v = sfx_voices[currentSfx];
   v.active = true;
+  //Turn off mixer to avoid distortion or clicks whilst changing.
   mixer.setWeight(v.mixerIndex,0);
 
+  //Changing Volume
   v.volume->setVolume(sfxVolValue);
   //Manual adjustment of volume for louder sound effects
   if(sfx_playing >= 4 && sfx_playing <= 6) // Selecting game nosises quite loud so this dampens it
   {
     v.volume->setVolume(sfxVolValue*0.46);
   }  
+
   // Empty variables to hold the new sound effect info
   const uint8_t* currentData = nullptr;
   size_t currentLen = 0;
 
-  //If playing from Flash Memory
-  if(sfx_playing <= sfxAmount)
-  {
-    currentData = sfxList[sfx_playing].data;
-    currentLen = sfxList[sfx_playing].len;
-    v.endTime = sfxList[sfx_playing].ms;
-  }
+  //get sound effect's information
+  currentData = sfxList[sfx_playing].data;
+  currentLen = sfxList[sfx_playing].len;
+  v.endTime = sfxList[sfx_playing].ms;
   // ---- Deleting to avoid memory leaking / stacking up of the pointers
   //They have to be pointers as the version of Audio Tool that's being used
   //Doesn't have the functions to allow different methods of changing sound effects.
@@ -663,7 +657,7 @@ void playSfx(int sfx_playing)
   v.stream->begin();
   v.decoder -> begin();
 
-  //Restarting timer
+  //Restarting sound effect timer and turning on mixer
   v.startTime = millis();
   mixer.setWeight(v.mixerIndex,100);
   isSfxPlaying = true;

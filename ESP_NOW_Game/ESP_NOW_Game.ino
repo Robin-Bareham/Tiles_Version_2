@@ -1,7 +1,3 @@
-///// REMOVE ALL AUDIO FUNCTIONS AND KEEP GAME FUNCTOONS (SENDING AND RECIEVING DATA)
-//// THIS IS WHAT IS CONNECTED TO THE LAPTOP
-
-
 // yb CODE SENDING AND RECEIVING
 #include <Arduino.h>
 #include "ESPNowStruct.h"
@@ -21,8 +17,15 @@ uint8_t receiverAddress2[] = {0x24,0x58,0x7C,0x65,0x76,0xF8}; //YelloByte Addres
 uint8_t tileAddress[6];
 uint8_t ybAddress[6];
 
-struct_message_all myGame;     // Create an outgoing struct_message from game ESP called myGame
-struct_message_all myResults;  // Create an incoming struct_message called myResults
+
+struct_message_all myResults;  // Message that hold the data sent to this ESP
+struct_message_all audioMessage; //Message that gets sent to the YB ESP
+struct_message_all tileMessage; //Message that gets sent to the Tile ESP
+
+//Base volumes of background music and sound effects, 1 to 101. 1 being muted 101 being 100%
+//because when it sends to yb it -1 on the value passed in.
+int bg_volume = 60; 
+int sfx_volume = 101;
 
 String serialBuffer = "";
 
@@ -38,6 +41,9 @@ int leftHeel;
 int rightToe;
 int rightHeel;
 int gameSuccess = 5;
+int balanceScore = 0;
+int legScore = 0;
+int lungeScore = 0;
 
 // Delta Time
 unsigned long previousTime = 0;
@@ -54,17 +60,26 @@ void OnDataRecv(const esp_now_recv_info_t *info, const uint8_t *incomingData, in
   //const uint8_t *mac_addr = info->src_addr;// Extract MAC address of sender
   memcpy(&myResults, incomingData, sizeof(myResults));
   // Serial.print("\r\nBytes received: ");
-  // Serial.println(len);
-  // Serial.print("From MAC: ");
-  // for (int i = 0; i < 6; i++) {
-  //   Serial.printf("%02X%s", mac_addr[i], (i < 5) ? ":" : "");
-  // }
-  // Serial.printf("\nMessage: %s | Value: %d\n", myResults.msg, myResults.value);
+    // Serial.println(len);
+    // Serial.print("From MAC: ");
+    // for (int i = 0; i < 6; i++) {
+    //   Serial.printf("%02X%s", mac_addr[i], (i < 5) ? ":" : "");
+    // }
+    // Serial.printf("\nMessage: %s | Value: %d\n", myResults.msg, myResults.value);
+  // Load Data into variablea
+  airtime = myResults.t; 
+  jumpState = myResults.js; 
+  //stepDelay is 500ms by default
+  stepDelay = myResults.sd; // update stepDelay-if we wanted to alter this.
   leftToe = myResults.dA; // fill myResults struct with data
   leftHeel = myResults.dB;
   rightToe = myResults.eA;
   rightHeel = myResults.eB;
   gameSuccess = myResults.gB;
+  //Scores
+  balanceScore = myResults.fA; //Score from Calib 2 (Balance)
+  legScore = myResults.fB; //Score from Calib 3 (Leg Lift)
+  lungeScore = myResults.gA; //Score from Calib 5 (Lunge)
   dataReceived = true;
 }
 
@@ -84,26 +99,15 @@ void setup() {
   esp_now_register_recv_cb((esp_now_recv_cb_t)OnDataRecv);
 
   // Register Peer
-  //esp_now_peer_info_t peerInfo = {};
-  //memcpy(peerInfo.peer_addr, receiverAddress1, 6); // Current Peer is to the tile only 
   
-  //Adds Multiple Peers?
+  //Adds Multiple Peers
   memcpy(tileAddress, receiverAddress1, 6);
   memcpy(ybAddress, receiverAddress2, 6);
 
   addPeer(receiverAddress1);
   addPeer(receiverAddress2);
-
-  
-
-  //peerInfo.channel = 0;
-  //peerInfo.encrypt = false;
-
-  // Add peer to network
-  // if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-  //   Serial.println("Failed to add peer");
-  //   return;
-  // }
+  //Sends message to YB to start music (intro that'll lead to main menu)
+  sendAudioMsg(0,1,0,bg_volume,0);
 }  // end of void setup
 
 //=====================================================================================
@@ -111,22 +115,11 @@ void loop() {
   //check for messages from game esp (not keyboard) - for game success sounds
   if (dataReceived == true) {
     loadData();  // load gameSuccess data from game esp, sets dataReceived to false again
-    Serial.print("gameSuccess is ");
-    Serial.println(gameSuccess);
-    /*Serial.print(", LT: ");
-      Serial.print(leftToe);  //print the number
-      Serial.print(", LH: ");
-      Serial.print(leftHeel);  //print the number
-      Serial.print(", RT: ");
-      Serial.print(rightToe);  //print the number
-      Serial.print(", RH: ");
-      Serial.println(rightHeel);  //print the number
-    */
+    
   }
   //possible switch case for calling games
 
-  // Read serial input -> send number on to game ESP to play a game. once done, we play sound.
-  // we need to input 91, 92, 93, 95, 97, or 98 to start a game. Do not send 0 to reset
+  //Serial Monitor Input
   while (Serial.available() > 0) 
   {
     char c = Serial.read();
@@ -148,49 +141,36 @@ void loop() {
 //==============================================================================
 
 void loadData() 
-{  //actively load incoming results and sensor values, sets dataReceived = false
-  //airtime = myResults.t; 
-  //jumpState = myResults.js; 
-  //stepDelay is 500ms by default
-  //stepDelay = myResults.sd; // update stepDelay-if we wanted to alter this.
-  //leftToe = myResults.dA;
-  //leftHeel = myResults.dB;
-  //rightToe = myResults.eA;
-  //rightHeel = myResults.eB;
-  //gameSuccess = myResults.gB; 
+{  
+  //This is where you do what you want with the data received
+  
+  //Prints out DATA information
+  Serial.print("gameSuccess: ");
+  Serial.print(gameSuccess);
+  Serial.print(", balanceScore: ");
+  Serial.print(balanceScore);
+  Serial.print(", legScore: ");
+  Serial.print(legScore);
+  Serial.print(", lungeScore: ");
+  Serial.println(lungeScore);
+  Serial.print("LT: ");
+  Serial.print(leftToe); 
+  Serial.print(", LH: ");
+  Serial.print(leftHeel);  
+  Serial.print(", RT: ");
+  Serial.print(rightToe);  
+  Serial.print(", RH: ");
+  Serial.println(rightHeel); 
+
   dataReceived = false;
-
-
-  //Temp calling audio if recieving message from Tiles,
-  //Shouldn't need this.
-  struct_message_all audioMessage;
-  switch(gameSuccess)
-  {
-    case 0:
-    case 1:
-    case 2:
-      audioMessage.id = 6;
-      audioMessage.dA = gameSuccess + 1 ; // plays success, partial or fail sound effect
-      audioMessage.eB = 100; // Sound effect volume
-      sendMessage(ybAddress,audioMessage);
-    break;
-    case 3:
-      
-      audioMessage.id = 6;
-      //When music is active use bit bellow instead.
-      audioMessage.dB = 8; // number of celebration music.
-      audioMessage.eA = 55; // background volume
-      sendMessage(ybAddress,audioMessage);
-    break;
-
-  }
 }
-
-
 
 void processSerialCommand(String command) 
 {
-  //Input command that sends either to Tile ESP / Audio ESP or both depending on the input
+  // 91,92,93,95,96,97,98 Start a game
+  // 90 resets, 94 does nothing
+  // 0 activates main menu (Currently music and nothing else, doesn't reset)
+  // 1 to 10 play a sound effect from the YB <- can be removed if calling of Simon Says is implimented as well
   command.trim();
 
   if (command.length() == 0) return;
@@ -209,24 +189,18 @@ void processSerialCommand(String command)
   if(isNumber)
   {
     int numInput = command.toInt();
+    //Starting Exercises
     if(numInput >= 90 && numInput <= 98)
     {
       // Tell Tile to Start Exercise
-      Serial.println("Sending to Tile");
-      struct_message_all gameMessage;
-      gameMessage.id = 6; //Game ESP id, i don't know if this is correct
-      gameMessage.b = numInput; //The game it's calling upon.
-      sendMessage(tileAddress, gameMessage);
-      Serial.println("Sending to tile END");
+      tileMessage.b = numInput; //Tells the tile ESP which game it's running.
+      sendMessage(tileAddress, tileMessage);
       // Tell YB to start sfx and bg music
-      struct_message_all audioMessage;
-      if(numInput != 90 && numInput != 98 ) //If it's not the reset / celibration
+      audioMessage.eB = bg_volume; // BG volume
+      audioMessage.eA = sfx_volume; // Sfx volume
+      if(numInput != 90 && numInput != 98 && numInput != 94 ) //If it's not the reset / celibration / Agility
       {
-        audioMessage.id = 6;
-        audioMessage.dA = 7; // Excerise start sound effect
-        audioMessage.eB = 100; // Sound effect volume
-        audioMessage.eA = 60; // Background volume
-        
+        audioMessage.dA = 7; // Excerise start sound effect      
       }
       switch (numInput)
       {
@@ -234,7 +208,6 @@ void processSerialCommand(String command)
         case 90:
         case 94:
           audioMessage.dB = 2; //Silence
-          audioMessage.eA = 0;
         break;
         //Marching
         case 91:
@@ -253,29 +226,41 @@ void processSerialCommand(String command)
         break;
         //Celibration
         case 98:
-          audioMessage.dB = 8;
+          audioMessage.dB = 9;
           audioMessage.gB = 1; //Doesn't loop
         break;
       }
       sendMessage(ybAddress,audioMessage);
     }
-    //For testing, gets the yb to play a sound effect
-    else if (numInput >= 0 && numInput <= 10)
+    //Main Menu, doesn't reset anything.
+    else if(numInput == 0)
     {
-      Serial.println("Start of sending.");
-      //Send Sound effect
-      struct_message_all audioMessage;
-        audioMessage.id = 6;
-        audioMessage.dA = numInput; // Excerise start sound effect
-        audioMessage.eB = 70; // Sound effect volume
-        sendMessage(ybAddress,audioMessage);
-        Serial.println("End of sending.");
+      sendAudioMsg(numInput,4,0,bg_volume,0);
+      tileMessage.b = numInput; //Tells it it's in the main menu.
+      sendMessage(tileAddress, tileMessage);
+    }
+    //For testing, gets the yb to play a sound effect
+    else if (numInput >= 1 && numInput <= 10)
+    {
+      sendAudioMsg(numInput,0,sfx_volume,0,0);
     }
   }
 }
 
 // ================================ Message Sending
 
+//Quick way of sending audio messages
+void sendAudioMsg(int p_sfx, int p_bg, int p_sfxVol, int p_bgVol, int p_bgLoop)
+{
+  audioMessage.dA = p_sfx;
+  audioMessage.dB = p_bg;
+  audioMessage.eA = p_sfxVol;
+  audioMessage.eB = p_bgVol;
+  audioMessage.gB = p_bgLoop;
+  sendMessage(ybAddress, audioMessage);
+}
+
+//Function to send a message to a passed in address
 bool sendMessage(const uint8_t *macAddress, struct_message_all &message)
 {
   
@@ -293,6 +278,7 @@ bool sendMessage(const uint8_t *macAddress, struct_message_all &message)
   }
 }
 
+//allows multiple peers to be added easily.
 bool addPeer(const uint8_t *macAddress)
 {
   esp_now_peer_info_t peerInfo;

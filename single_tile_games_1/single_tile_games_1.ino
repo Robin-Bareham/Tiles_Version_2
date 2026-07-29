@@ -114,8 +114,12 @@ int tileSegment;  // this allows us to choose one of the 8 predefined tile segme
 
 #include <esp_now.h>  //now the ESP-NOW stuff................................................................ESP NOW
 #include <WiFi.h>
-uint8_t receiverAddress[] = {  0x24, 0x58, 0x7C, 0x65, 0x76, 0xF8 };  //we send to yellobyte esp for sounds
-//uint8_t receiverAddress2[] = { 0xEC, 0xDA, 0x3B, 0x96, 0xEA, 0xB0 }; //Game ESP reciever (ec:da:3b:96:ea:b0)
+uint8_t receiverAddress1[] = {  0x24, 0x58, 0x7C, 0x65, 0x76, 0xF8 };  //we send to yellobyte esp for sounds
+uint8_t receiverAddress2[] = { 0xEC, 0xDA, 0x3B, 0x96, 0xEA, 0xB0 }; //Game ESP reciever (ec:da:3b:96:ea:b0)
+uint8_t gameAddress[6];
+uint8_t ybAddress[6];
+
+
 
 //variables incoming and outgoing data
 bool dataReceived = false;
@@ -169,13 +173,15 @@ typedef struct struct_message_all {  // sender/receiver must match structure
   int dB;                            // left heel sensor
   int eA;                            // right toe sensor
   int eB;                            // right heel sensor
-  int fA;
-  int fB;
-  int gA;
-  int gB;
+  int fA;                            // Calib 2 Balance Score
+  int fB;                            // Calib 3 Leg Lift Score
+  int gA;                            // Calib 5 Lunge Score
+  int gB;                            // Game Success
 } struct_message_all;
-struct_message_all myResults;  // Create a struct_message called myResults to be sent to yellobyte ESP
+
+struct_message_all myResults;  // Create a struct_message called myResults to be sent to game ESP
 struct_message_all myGame;     // Create an incoming struct_message from yellobyte ESP called myGame
+struct_message_all audioMessage; //What gets sent to YB.
 
 esp_now_peer_info_t peerInfo;  // store info about peer
 
@@ -354,16 +360,13 @@ void setup() {
   esp_now_register_send_cb((esp_now_send_cb_t)OnDataSent);
 
   // Register the peer(s)
-  esp_now_peer_info_t peerInfo = {};               // Initialize structure
-  memcpy(peerInfo.peer_addr, receiverAddress, 6);  // Copy the receiver's MAC address - yellobyte
-  peerInfo.channel = 0;
-  peerInfo.encrypt = false;
 
-  // Add the peer to the network
-  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
-    Serial.println("Failed to add peer");
-    return;
-  }
+  //Adds Multiple Peers it can send to + receive from
+  memcpy(ybAddress, receiverAddress1, 6);
+  memcpy(gameAddress, receiverAddress2, 6);
+
+  addPeer(receiverAddress1);
+  addPeer(receiverAddress2);
 
   // Once ESPNow is successfully Init, we will register for recv CB to get recv packer info
   esp_now_register_recv_cb(esp_now_recv_cb_t(OnDataRecv));
@@ -390,6 +393,10 @@ void loop() {
    98 = save data, victory display*/
 
   switch (buttonInput) {  //do NOT add cleanUps to these cases!
+    case 0:
+      //main menu, does nothing at the moment
+      //game esp just plays the main menu music upon calling it.
+    break;
     case 90:               //reset
       {
         switch (currentResetState) {
@@ -423,18 +430,9 @@ void loop() {
               myResults.fB = balanceScoreSide;  //calib3 set to nil
               myResults.gA = balanceScoreDyn;   //calib5 set to nil
               myResults.gB = 5;                 //results score, for nil result, set to five
-              esp_err_t result1 = esp_now_send(receiverAddress, (uint8_t *)&myResults, sizeof(myResults));
-
-              currentMarchState = MARCHPREP;  //reset calib1
-              currentBalState = BAL1PREP;     //reset calib2
-              currentSideState = SIDEPREP;    //reset calib3
-              //currentState = STEP1_PREP;       //reset calib4
-              currentLungeState = LUNGEPREP;  //reset calib5
-              currentSquatState = SQUATPREP;   //reset calib6
-              currentJumpingState = JUMPPREP;  //reset calib7
-              currentFinalState = FINAL;       //reset calibend
-              currentResultState = RESULT;     //reset results
-              //currentRopeState = GAMEPREP;     //reset jumpRope game
+              //esp_err_t result1 = esp_now_send(receiverAddress, (uint8_t *)&myResults, sizeof(myResults));
+              sendMessage(gameAddress,myResults);
+              resetStates();
               currentResetState = RESETDONE;  //moves us into an idle state
             }
             break;
@@ -503,10 +501,11 @@ void loadGameData() {  // loads all sensor values, sets dataReceived = false
   buttonInput = myGame.b;  //check gamelevel received from yellobyte ESP
   Serial.print("buttonInput received: ");
   Serial.println(buttonInput);
+  resetStates(); //Resets the switch cases inside the calibs, so they don't break if playing multiple exercises without fully reseting (90) between
   //stepDelay is 500ms by default
   //stepDelay = myGame.sd; // update stepDelay-if we wanted to alter this.
   dataReceived = false;
-}  //end of loadGameData
+}  
 
 void loadSensorData() {
   leftToe = analogRead(5);
@@ -747,7 +746,8 @@ void calib2() {                            // exercise 2: balance on LEFT, RIGHT
         //myResults.sd = stepDelay; //what stepDelay was used
         myResults.fA = balanceScore;
         // Send message1 via ESP-NOW to data ESP
-        esp_err_t result1 = esp_now_send(receiverAddress, (uint8_t *)&myResults, sizeof(myResults));
+        //esp_err_t result1 = esp_now_send(receiverAddress, (uint8_t *)&myResults, sizeof(myResults));
+        sendMessage(gameAddress, myResults); //Sends the score to game ESP
         //if (result1 == ESP_OK) {
         //Serial.print(", myResults was sent with success");
         //} else {
@@ -901,7 +901,8 @@ void calib3() {                            // exercise3: side lift 5xL and 5xR, 
           //myResults.sd = stepDelay;  //what delay was used?
           myResults.fB = balanceScoreSide;  // percentage 0 - 100
           // Send message1 via ESP-NOW to data ESP
-          esp_err_t result1 = esp_now_send(receiverAddress, (uint8_t *)&myResults, sizeof(myResults));
+          //esp_err_t result1 = esp_now_send(receiverAddress, (uint8_t *)&myResults, sizeof(myResults));
+          sendMessage(gameAddress,myResults);
           //if (result1 == ESP_OK) {
           //Serial.print(", myResults was sent with success");
           //} else {
@@ -1717,7 +1718,8 @@ void calib5() {                            // exercise 5: alternating LUNGES, 5x
           //myResults.sd = stepDelay;  //what delay was used?
           myResults.gA = balanceScoreDyn;  // percentage 0 - 100
           // Send message1 via ESP-NOW to data ESP
-          esp_err_t result1 = esp_now_send(receiverAddress, (uint8_t *)&myResults, sizeof(myResults));
+          //esp_err_t result1 = esp_now_send(receiverAddress, (uint8_t *)&myResults, sizeof(myResults));
+          sendMessage(gameAddress,myResults);
           //if (result1 == ESP_OK) {
           //Serial.print(", myResults was sent with success");
           //} else {
@@ -1874,6 +1876,7 @@ void calib7() {                            // exercise 7:  airtime x 3, total ti
       if (currentMillis - startMillis >= (stepDelay * 5)) {  //after 2.5s dip, lights off, indicate the jump, start jumpwindow
         //switch lights over for jumping;
         cleanUp();
+        sendAudioMsg(9,0,101,0,0); //Fail sfx, Silence Mus, Volumes.
         pixels.fill(orange, 0, 60);  // LEFT TiLE
         //pixels.fill(orange, 50, 10);  // RIGHT Tile
         pixels.show();
@@ -1954,10 +1957,6 @@ void calibend() {
   switch (currentFinalState) {
     case FINAL:
       {
-      gameSuccess = 3; //to play sound 3 = theme
-      myResults.id = 2; // sent from game ESP
-      myResults.gB = gameSuccess;  
-      esp_now_send(receiverAddress, (uint8_t *)&myResults, sizeof(myResults));
       pixels.clear();                        // Set all pixel colors to 'off'
       delay(1500);                        
       for (int i = 0; i < NUMPIXELS; i++) {  // For each pixel...
@@ -1997,9 +1996,7 @@ void successResult() {                     // we want to send back "success":
   switch (currentResultState) {
     case RESULT:
       gameSuccess = 0; //to play sound 0 = success
-      myResults.id = 2; // sent from game ESP
-      myResults.gB = gameSuccess;  
-      esp_now_send(receiverAddress, (uint8_t *)&myResults, sizeof(myResults));
+      sendAudioMsg(1,2,101,0,0); //Fail sfx, Silence Mus, Volumes.
       pixels.clear();              // Set all pixel colors to 'off'
       pixels.fill(green, 10, 40);  //outside
       pixels.fill(green, 50, 10);
@@ -2019,9 +2016,7 @@ void partialResult() {
   switch (currentResultState) {
     case RESULT:
       gameSuccess = 1; //to play sound 1 = partial
-      myResults.id = 2; // sent from game ESP
-      myResults.gB = gameSuccess;  
-      esp_now_send(receiverAddress, (uint8_t *)&myResults, sizeof(myResults));
+      sendAudioMsg(2,2,101,0,0); //Fail sfx, Silence Mus, Volumes.
       pixels.clear();              // Set all pixel colors to 'off'
       pixels.fill(yellow, 10, 40);  //outside
       pixels.fill(yellow, 50, 10);
@@ -2041,9 +2036,7 @@ void failResult() {
   switch (currentResultState) {
     case RESULT:
       gameSuccess = 2; //to play sound 2 = fail
-      myResults.id = 2; // sent from game ESP
-      myResults.gB = gameSuccess;  
-      esp_now_send(receiverAddress, (uint8_t *)&myResults, sizeof(myResults));
+      sendAudioMsg(3,2,101,0,0); //Fail sfx, Silence Mus, Volumes.
       pixels.clear();              // Set all pixel colors to 'off'
       pixels.fill(red, 10, 40);  //outside
       pixels.fill(red, 50, 10);
@@ -2069,6 +2062,18 @@ void endSet() {                //we dont send
 
 // ====================================    ESP SENDING MESSAGES AND ADDING PEERS
 
+//allows for ease of sending audio messages.
+void sendAudioMsg(int p_sfx, int p_bg, int p_sfxVol, int p_bgVol, int p_bgLoop)
+{
+  audioMessage.dA = p_sfx;
+  audioMessage.dB = p_bg;
+  audioMessage.eA = p_sfxVol;
+  audioMessage.eB = p_bgVol;
+  audioMessage.gB = p_bgLoop;
+  sendMessage(ybAddress, audioMessage);
+}
+
+//Allows for ease of sending message
 bool sendMessage(const uint8_t *macAddress, struct_message_all &message)
 {
   
@@ -2086,6 +2091,7 @@ bool sendMessage(const uint8_t *macAddress, struct_message_all &message)
   }
 }
 
+//Allows for adding multiple peers easier.
 bool addPeer(const uint8_t *macAddress)
 {
   esp_now_peer_info_t peerInfo;
@@ -2103,3 +2109,17 @@ bool addPeer(const uint8_t *macAddress)
     return true;
 }
 
+//Resets only the state of the exercise switch cases.
+void resetStates()
+{
+  currentMarchState = MARCHPREP;  //reset calib1
+  currentBalState = BAL1PREP;     //reset calib2
+  currentSideState = SIDEPREP;    //reset calib3
+  //currentState = STEP1_PREP;       //reset calib4
+  currentLungeState = LUNGEPREP;  //reset calib5
+  currentSquatState = SQUATPREP;   //reset calib6
+  currentJumpingState = JUMPPREP;  //reset calib7
+  currentFinalState = FINAL;       //reset calibend
+  currentResultState = RESULT;     //reset results
+  //currentRopeState = GAMEPREP;     //reset jumpRope game
+}
