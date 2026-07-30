@@ -72,8 +72,15 @@ int totalMusicFiles = 0;
 //Serial Monitor Debugging
 String menu = "main"; //"main", "bg", "sfx"
 
+//Code for Sound Effect Queue.
+// int sfxQueue[10];
+// int sq_size = 9;
+// int sq_front_ptr = 0;
+// int sq_next_ptr = 0;
 
-#include <esp_now.h>  //===============================================ESP
+//============= ESP Variables
+
+#include <esp_now.h>
 #include <WiFi.h>
 
 // 1. THE MAC ADDRESS OF THE 1Tile LED ESP BOARD (=receiver). we send to this address.
@@ -337,6 +344,20 @@ void loop() {
     {
       v.active = false;
       mixer.setWeight(v.mixerIndex,0);
+      //If there's a sfx waiting to be played in the queue. === Queue Code
+      // if(sfxQueue[sq_front_ptr]!=0)
+      // {
+      //   //Play sfx at the front of the queue
+      //   playSfx(sfxQueue[sq_front_ptr]);
+      //   //And empty position
+      //   sfxQueue[sq_front_ptr] = 0;
+      //   //Then change index it's pointing to.
+      //   sq_front_ptr += 1;
+      //   if(sq_front_ptr > sq_size)
+      //   {
+      //     sq_front_ptr = 0;
+      //   }
+      // }
     }
   }
 
@@ -454,6 +475,7 @@ void processSerialCommand(String command) {
   // "bg" is where you adjust the background's volume, type "back" to return to main.
   // "sfx" is where you adjust the sound effect's volume, type "back" to return to main.
   // This can all be removed / simplified once the final ESP is ready as this has been for testing purposes
+
   if(menu == "main")
   {
     if(command.equalsIgnoreCase("bg"))
@@ -468,6 +490,12 @@ void processSerialCommand(String command) {
       Serial.println("In SFX Vol");
       return;
     }
+    // if(command.equalsIgnoreCase("q"))
+    // {
+    //   menu = "q";
+    //   Serial.println("In SFX QUEUE");
+    //   return;
+    // }
      //Typing in a number will get the sound effect, typing in the name gives the background music
     if (isNumber) 
     {
@@ -499,32 +527,19 @@ void processSerialCommand(String command) {
     else 
     {
       // It's a name, search for it
-      for (int i = 0; i < totalAudioFiles; i++) {
-        if (audioFiles[i].name.equalsIgnoreCase(command)) {
+      for (int i = 0; i < totalMusicFiles; i++) 
+      {
+        if (musicFiles[i].name.equalsIgnoreCase(command)) 
+        {
           fileIndex = i;
           break;
         }
       }
-
       if (fileIndex < 0) {
         Serial.printf("File '%s' not found. Type 'list' to see all files.\n", command.c_str());
         return;
       }
-      //Finds the background music
-        for (int i = 0; i < totalMusicFiles; i++)
-        {
-          if(musicFiles[i].name.equalsIgnoreCase(command))
-          {
-            fileIndex = i;
-            break;
-          }
-        }
-        if(fileIndex < 0)
-        {
-          Serial.printf("File '%s' not found. Type 'list' to see all files. \n", command.c_str());
-          return;
-        }
-        playBg(fileIndex,0,0);
+      playBg(fileIndex,0,0);
     }
   }
   else if (menu == "bg")
@@ -553,12 +568,29 @@ void processSerialCommand(String command) {
       changeSfxVol(command.toInt());
     }
   }
+  //Code to manually add sfx to the queue.
+  // else if (menu == "q")
+  // {
+  //   if(command.equalsIgnoreCase("back"))
+  //   {
+  //     menu = "main";
+  //     Serial.println("In Main Menu");
+  //     return;
+  //   }
+  //   if(isNumber)
+  //   {
+  //     if(command.toInt()>= 1 && command.toInt() <= 10)
+  //     {
+  //       addToQueue(command.toInt());
+  //     }
+  //     else
+  //     {
+  //       Serial.println("Invalid sfx.");
+  //     }
+  //   }
+  // }
   // ----- End of menu system for the Serial Monitor -----
-
- 
-}//end of process Input
-
-
+}
 
 void playBg(int bg_playing, int looping, int cutting)
 {
@@ -572,7 +604,7 @@ void playBg(int bg_playing, int looping, int cutting)
   else
   {
     //if the music's position doesn't exist
-    if(bg_playing < 0 || bg_playing >= totalAudioFiles) {return;}
+    if(bg_playing < 0 || bg_playing >= totalMusicFiles) {return;}
     
     //changing volumes
     bgVolume.setVolume(bgVol);
@@ -691,3 +723,105 @@ void changeBgVol(int p_Vol)
   bgVolume.setVolume(bgVol);
 }
 
+//=========================================================
+//======== Potential Code for an Audio Struct =============
+//========================================================
+
+//Bellow are functions that could be called upon, including an
+// option for a queue for sound effects.
+
+/*
+  void addToQueue(int new_sfx)
+  {
+    //If the spot is open
+    if(sfxQueue[sq_next_ptr] == 0)
+    {
+      //Add new sound effect to queue
+      sfxQueue[sq_next_ptr] = new_sfx;
+      //Change position of pointer to next space
+      sq_next_ptr += 1;
+      if(sq_next_ptr > sq_size)
+      {
+        sq_next_ptr = 0;
+      }
+    }
+    else
+    {
+      Serial.println("No space in queue.");
+    }
+  }
+
+  // Stop function
+  void stopAll()
+  {
+    //Silence Background Music
+    playBg(2,0,0);
+    //Silence SFXs
+    sfx_voices[0].active = false;
+    mixer.setWeight(sfx_voices[0].mixerIndex,0);
+    sfx_voices[1].active = false;
+    mixer.setWeight(sfx_voices[1].mixerIndex,0);
+  }
+
+  // Interrupt function 
+  void interruptSfx(int new_sfx)
+  {
+    //Destroys sfx then play the new one
+    sfx_voices[0].active = false;
+    mixer.setWeight(sfx_voices[0].mixerIndex,0);
+    sfx_voices[1].active = false;
+    mixer.setWeight(sfx_voices[1].mixerIndex,0);
+    playSfx(new_sfx);
+    //Alongside the queue, it'll stop whats currently playing but will then resume the queue.
+  }
+
+  // Play BG track by name
+  // If you want to change the music's names, you'll have
+  // to rename them in the SD Card., but make sure they still
+  // have m_ at the front of them.
+  bool playBgName(String audio_name)
+  {
+    int fileIndex = -1;
+    //Finds the background music
+    for (int i = 0; i < totalMusicFiles; i++)
+    {
+      if(musicFiles[i].name.equalsIgnoreCase(audio_name))
+      {
+        fileIndex = i;
+        break;
+      }
+    }
+    if(fileIndex < 0)
+    {
+      Serial.printf("File '%s' not found. Type 'list' to see all files. \n", audio_name.c_str());
+      return false;
+    }
+    playBg(fileIndex,0,0);
+    return true;
+  }
+  // Play SFX by name
+  // If you want to change sound effect names, go to audio_data.h
+  // and change the string value in the sfxList. 
+  bool playSfxName(String audio_name)
+  {
+    int fileIndex = -1;
+    //Finds the background music
+    for (int i = 0; i < sfxAmount; i++)
+    {
+      String temp_value = sfxList[i].name;
+      if(temp_value.equalsIgnoreCase(audio_name))
+      {
+        fileIndex = i;
+        break;
+      }
+    }
+    if(fileIndex < 0)
+    {
+      Serial.printf("File '%s' not found. Type 'list' to see all files. \n", audio_name.c_str());
+      return false;
+    }
+    playSfx(fileIndex);
+    return true;
+  }
+
+*/
